@@ -1,0 +1,134 @@
+---
+- hosts: "localhost"
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Login
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/login"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: 
+           user: "{{ mgmt_user }}"
+           password: "{{ mgmt_password }}"
+      register: loginoutput
+
+    - set_fact:
+         sid: "{{ loginoutput.json.sid }}"
+  
+    - name: "Set Bulk Objects"
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/v1.6/set-objects-batch"
+         validate_certs: false
+         method: POST
+         body_format: json
+         headers :
+           X-chkp-sid : "{{ sid }}"
+         body:  
+           objects: 
+             - type: host
+               list:
+               - name: Ansible_Host1
+                 ip-address: 193.0.2.1
+                 color: blue
+               - name: Ansible_Host2
+                 ip-address: 193.0.2.2
+                 color: orange
+             - type: address-range
+               list:
+               - name: Ansible_Range_1
+                 color: pink
+                 ip-address-first: 193.0.2.1
+                 ip-address-last: 193.0.2.10
+               - name: Ansible_Range_2
+                 color: sea green
+                 ip-address-first: 193.0.2.11
+                 ip-address-last: 193.0.2.20
+             - type: service-tcp 
+               list:
+               - name: Ansible_tcp_51234
+                 color: coral
+                 port: 51234 
+               - name: Ansible_tcp_52345
+                 color: orange
+                 port: 52345 
+ 
+      register: batchtaskid
+
+    - set_fact:
+         batchtask: "{{ batchtaskid.json['task-id'] }}"
+
+    - name: Check Batch Status
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/show-task"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body:  
+           task-id:  "{{ batchtask }}" 
+         headers:
+           X-chkp-sid : "{{ sid }}"
+      retries: 60
+      delay: 3
+      register: taskoutput
+      until: (taskoutput.json.tasks[0]['status'] == "succeeded") or (taskoutput.json.tasks[0]['status'] == "failed")
+      failed_when: 
+        - (taskoutput.json.tasks[0]['status'] != "succeeded")
+
+    - name: Check Validation of Batch 
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/show-validations"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{}"
+         headers:
+           X-chkp-sid : "{{ sid }}"
+      register: validationoutput
+      failed_when: 
+         - validationoutput.json['warnings-total'] != 0
+         - validationoutput.json['errors-total'] != 0
+         - validationoutput.json['blocking-errors-total'] != 0
+
+    - name: Publish Changes 
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/publish"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{}"
+         headers:
+           X-chkp-sid : "{{ sid }}"
+      register: taskid 
+
+    - set_fact:
+        publishtask: "{{ taskid.json['task-id'] }}"
+
+    - name: Check Publish Status
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/show-task"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body:
+           task-id:  "{{ publishtask }}"
+         headers:
+           X-chkp-sid : "{{ sid }}"
+      retries: 60
+      delay: 2
+      register: taskoutput
+      until: (taskoutput.json.tasks[0]['status'] == "succeeded") or (taskoutput.json.tasks[0]['status'] == "failed")
+      failed_when:
+        - (taskoutput.json.tasks[0]['status'] != "succeeded")
+
+    - name: Logout of R80 API
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/logout"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{}"
+         headers : 
+           X-chkp-sid : "{{ sid }}"

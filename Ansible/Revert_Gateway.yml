@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+  gather_facts: no
+  connection: local
+  tasks:
+
+  - name: Revert to a snapshot
+    vmware_guest_snapshot:
+      hostname: 10.2.0.40
+      username: root
+      password: vpn1234
+      name: r80dot30gw1_CPX2020 
+      state: revert
+      snapshot_name: "UpdatedDA" 
+      folder: /ha-datacenter/vm
+      datacenter: ha-datacenter
+      validate_certs: no
+    delegate_to: localhost
+
+

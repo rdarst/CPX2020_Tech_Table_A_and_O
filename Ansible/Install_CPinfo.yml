@@ -1,0 +1,64 @@
+---
+- hosts: "localhost"
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Login
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/login"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{ \"user\" : \"{{ mgmt_user }}\", \"password\" : \"{{ mgmt_password }}\" }"
+      register: loginoutput
+
+    - set_fact:
+         sid: "{{ loginoutput.json.sid }}"
+  
+    - name: "Install CPinfo"
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/install-software-package"
+         validate_certs: false
+         method: POST
+         body_format: json
+         headers :
+           X-chkp-sid : "{{ sid }}"
+         body:  
+           name: "{{ package_name }}"
+           targets: [ "{{ cpx_gw_name }}" ]
+      register: jumbotaskid
+
+    - set_fact:
+         jumbotask: "{{ jumbotaskid.json['task-id'] }}"
+
+    - name: "Check Point Taskid"
+      debug:
+         msg: "{{ jumbotask }}"
+
+  
+    - name: Check Package Install Status
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/show-task"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{ \"task-id\" :  \"{{jumbotask}}\" }"
+         headers:
+           X-chkp-sid : "{{ sid }}"
+      retries: 60
+      delay: 10
+      register: taskoutput
+      until: (taskoutput.json.tasks[0]['status'] == "succeeded") or (taskoutput.json.tasks[0]['status'] == "failed")
+      failed_when: 
+        - (taskoutput.json.tasks[0]['status'] != "succeeded")
+
+    - name: Logout of R80 API
+      uri:
+         url: "https://{{ mgmt_server }}/web_api/logout"
+         validate_certs: false
+         method: POST
+         body_format: json
+         body: "{}"
+         headers : 
+           X-chkp-sid : "{{ sid }}"
